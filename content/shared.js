@@ -1,5 +1,5 @@
 // Haversine distance between two [lat, lon] points, in miles.
-function haversineMiles(a, b) {
+export function haversineMiles(a, b) {
   const R = 3958.8; // Earth radius in miles
   const toRad = deg => deg * Math.PI / 180;
 

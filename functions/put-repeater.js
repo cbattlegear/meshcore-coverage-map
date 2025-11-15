@@ -5,7 +5,7 @@ export async function onRequest(context) {
   const data = await request.json();
   const store = context.env.REPEATERS;
   
-  const [lat, lon] = parseFloat(data.lat, data.lon);
+  const [lat, lon] = parseLocation(data.lat, data.lon);
   const time = Date.now();
   const id = data.id;
   const name = data.name;

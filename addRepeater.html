@@ -17,12 +17,8 @@
       <input type="text" id="name" name="name">
     </div>
     <div class="form-item">
-      <label for="lat">Lat:</label>
-      <input type="text" id="lat" name="lat">
-    </div>
-    <div class="form-item">
-      <label for="lon">Lon:</label>
-      <input type="text" id="lon" name="lon">
+      <label for="loc">Location:</label>
+      <input type="text" id="loc" name="loc" placeholder="(LAT) (LON)">
     </div>
     <div class="form-item">
       <label for="path">Path:</label>
@@ -35,12 +31,12 @@
   <div id="status">
   </div>
 
-  <script>
+  <script type="module">
+    import { parseLocation } from '/content/shared.js'
     const $ = (id) => document.getElementById(id);
     const idTxt = $('id');
     const nameTxt = $('name');
-    const latTxt = $('lat');
-    const lonTxt = $('lon');
+    const locTxt = $('loc');
     const pathTxt = $('path');
     const statusDiv = $('status');
 
@@ -55,34 +51,28 @@
     function clearForm() {
       idTxt.value = '';
       nameTxt.value = '';
-      latTxt.value = '';
-      lonTxt.value = '';
+      locTxt.value = '';
       pathTxt.value = '';
     }
 
     async function putRepeater() {
       const idVal = idTxt.value;
       const nameVal = nameTxt.value;
-      const latVal = latTxt.value;
-      const lonVal = lonTxt.value;
       const pathVal = pathTxt.value;
-      const payload = {
-        id: idVal,
-        name: nameVal,
-        lat: parseFloat(latVal),
-        lon: parseFloat(lonVal),
-        path: pathVal !== "" ? pathVal.split(',') : []
-      };
-
-      if (isNaN(payload.lat) || isNaN(payload.lon)) {
-        setStatus("Invalid position");
-        return;
-      }
+      const [lat, lon] = locTxt.value.split(/\s*,?\s+/)
 
       if (idVal.length !== 2) {
         setStatus("Invalid id");
         return;
       }
+
+      const payload = {
+        id: idVal,
+        name: nameVal,
+        lat: lat,
+        lon: lon,
+        path: pathVal !== "" ? pathVal.split(',') : []
+      };
 
       console.log(`putting ${payload}`);
       setStatus('');
@@ -98,10 +88,20 @@
       if (!resp.ok) {
         setStatus('HTTP error ' + resp.status);
       } else {
-        setStatus('Repeater saved!');
+        setStatus(`Repeater saved! ${[idVal, lat, lon]}`);
         clearForm();
       }
     }
+
+    async function tryPutRepeater() {
+      try {
+        await putRepeater();
+      } catch (error) {
+        setStatus(error);
+      }
+    }
+
+    $('submit').addEventListener('click', tryPutRepeater);
   </script>
 </body>
 
