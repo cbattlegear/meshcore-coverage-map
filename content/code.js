@@ -116,7 +116,7 @@ function coverageMarker(coverage) {
   };
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
   const details = `
-    <strong>${coverage.id}</strong><br/>
+    <strong>${coverage.hash}</strong><br/>
     Heard: ${coverage.heard} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>
     Updated: ${date.toLocaleString()}
     ${coverage.hitRepeaters.size === 0 ? '' : '<br/>Repeaters: ' + coverage.hitRepeaters.join(',')}`;
