@@ -14,7 +14,7 @@ export async function onRequest(context) {
 
   // KV only allows one write to a key per second.
   // There's a strong possibility that's hit by #wardrive.
-  retry(async () => {
+  await retry(async () => {
     const resp = await store.getWithMetadata(key);
     if (resp.value !== null && resp.metadata !== null && ageInDays(resp.metadata.time) < 1) {
       // Merge path information with existing.
