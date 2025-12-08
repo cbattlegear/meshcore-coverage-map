@@ -487,13 +487,15 @@ async function startAutoPing() {
   if (state.pingMode === "interval") {
     intervalMs = minutes * 60 * 1000;
   } else {
-    const resp = await fetch("/get-wardrive-coverage");
-    if (!resp.ok)
-      throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-  
-    const coveredTiles = (await resp.json()) ?? [];
-    log(`Got ${coveredTiles.length} covered tiles from service.`);
-    coveredTiles.forEach(x => state.coveredTiles.add(x));
+    try {
+      const resp = await fetch("/get-wardrive-coverage");
+      const coveredTiles = (await resp.json()) ?? [];
+      log(`Got ${coveredTiles.length} covered tiles from service.`);
+      coveredTiles.forEach(x => state.coveredTiles.add(x));
+    } catch (e) {
+      console.error("Getting coverage failed", e);
+      setStatus("Get coverage failed", "text-red-300");
+    }
   }
 
   setStatus("Auto mode started", "text-emerald-300");

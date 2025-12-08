@@ -21,7 +21,7 @@
         <li>Red dot - the mesh was not reachable at that location (visible for 2 days).</li>
         <li>Green box - the mesh was reachable in this region.</li>
         <li>Red box - the mesh was not reachable in this region.</li>
-        <li>Dashed line - links a green dot to its 1st hop repeater.</li>
+        <li>Dashed line - links a green dot or box to its 1st hop repeater(s).</li>
         <li>Blue dot - repeater with an advert in the past 1 day.</li>
         <li>Light gray dot - repeater with an advert in the past 5 days.</li>
         <li>Dark gray dot - repeater without an advert in the past 5 days.</li>
@@ -35,8 +35,8 @@
     If the bot receives your location, a new point is added to the map indicating
     you can reach the mesh at that spot. If you want to also log places where you
     can't reach the mesh, there's a helpful web app you can run on your phone to
-    automate the process. To be "heard", your message must be repeated by either
-    PugetMesh Haystack [86] or WW7STR/PugetMesh Cougar [7e].
+    automate the process. To be "heard", your message must be heard by 
+    PugetMesh Haystack [86], WW7STR/PugetMesh Cougar [7e], or N7JMV-NEW-RP [53].
   </div>
 
   <h2 class="mb-2 text-xl text-slate-100">How you can contribute</h2>
@@ -70,6 +70,8 @@
           <li>It tries to keep the screen alive while running, but I've only tested on iOS.</li>
         </ul>
       </li>
+      <li><b>Use the "Fill Missing Tiles" mode to be most efficient.</b> It checks every 10 seconds if you're in a coverage tile that needs an update and only sends a ping if needed.</li>
+      <li>The interval mode requires that you've moved a minimum distance to prevent spamming the mesh.</li>
       <li>Don't spam the mesh or the service. The mesh is a shared resource -- be judicious.</li>
       <li>If you're using a mobile repeater (car-peater), use the "ignore id" function to exclude it from the path.
         Otherwise coverage data will be inaccurate.</li>
