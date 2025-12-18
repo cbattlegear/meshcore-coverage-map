@@ -175,3 +175,6 @@ dist
 
 .dev.vars
 .wrangler/
+
+# MQTT scraper config (contains credentials)
+mqtt-scraper/config.json

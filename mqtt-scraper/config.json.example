@@ -1,0 +1,31 @@
+{
+  "mqtt_mode": "public",
+  "mqtt_host": "mqtt-us-v1.letsmesh.net",
+  "mqtt_port": 443,
+  "mqtt_use_websockets": true,
+  "mqtt_use_tls": true,
+  "mqtt_use_auth_token": false,
+  "mqtt_public_key": null,
+  "mqtt_private_key": null,
+  "mqtt_username": "YOUR_MQTT_USERNAME",
+  "mqtt_password": "YOUR_MQTT_PASSWORD",
+  "mqtt_topics": [
+    "meshcore/SFO/+/packets",
+    "meshcore/OAK/+/packets",
+    "meshcore/SJC/+/packets"
+  ],
+
+  "service_host": "http://app:3000",
+  "center_position": [37.4241, -121.9756],
+  "valid_dist": 60,
+
+  "channel_hash": "e0",
+  "channel_secret": "4076c315c1ef385fa93f066027320fe5",
+
+  "watched_observers": [
+    "OHMC Repeater",
+    "Ruth Bader Ginsburg",
+    "Nullrouten observer"
+  ]
+}
+

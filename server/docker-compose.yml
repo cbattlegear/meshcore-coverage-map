@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: meshmap-db
+    environment:
+      POSTGRES_USER: meshmap
+      POSTGRES_PASSWORD: meshmap_dev
+      POSTGRES_DB: meshmap
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meshmap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - meshmap-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: meshmap-app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: meshmap
+      DB_USER: meshmap
+      DB_PASSWORD: meshmap_dev
+      PORT: 3000
+      HTTPS_PORT: 3443
+      NODE_ENV: development
+      # Location validation (optional)
+      CENTER_POS: "37.3382,-121.8863"
+      MAX_DISTANCE_MILES: 0
+      # Maintenance tasks
+      CONSOLIDATE_ENABLED: "true"
+      CONSOLIDATE_SCHEDULE: "0 2 * * *"
+      CONSOLIDATE_MAX_AGE_DAYS: "14"
+      CLEANUP_ENABLED: "true"
+      CLEANUP_SCHEDULE: "0 3 * * 0"
+    ports:
+      - "3000:3000"
+      - "3443:3443"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./ssl:/app/ssl:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - meshmap-network
+    command: npm run dev
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: meshmap-mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+      - ./mosquitto/config:/mosquitto/config
+    networks:
+      - meshmap-network
+    restart: unless-stopped
+
+  mqtt-scraper:
+    build:
+      context: ../mqtt-scraper
+      dockerfile: Dockerfile
+    container_name: meshmap-mqtt-scraper
+    volumes:
+      - ../mqtt-scraper/config.json:/app/config.json:ro
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - meshmap-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:
+
+networks:
+  meshmap-network:
+    driver: bridge
+
