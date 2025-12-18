@@ -18,7 +18,7 @@ const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 // Control state
-let repeaterRenderMode = 'hit';
+let repeaterRenderMode = 'all';
 let repeaterSearch = '';
 let showSamples = false;
 
@@ -114,8 +114,8 @@ mapControl.onAdd = m => {
       <label>
         Repeaters:
         <select id="repeater-filter-select">
-          <option value="all">All</option>
-          <option value="hit" selected="true">Hit</option>
+          <option value="all" selected="true">All</option>
+          <option value="hit">Hit</option>
           <option value="none">None</option>
         </select>
       </label>
@@ -544,11 +544,15 @@ function updateRepeatersList(contentDiv) {
   // Count geohashes per repeater
   const repeaterGeohashCount = new Map();
   
+  let coverageWithRepeaters = 0;
   hashToCoverage.forEach((coverage) => {
-    coverage.rptr.forEach(repeaterId => {
-      const idLower = repeaterId.toLowerCase();
-      repeaterGeohashCount.set(idLower, (repeaterGeohashCount.get(idLower) || 0) + 1);
-    });
+    if (coverage.rptr && coverage.rptr.length > 0) {
+      coverageWithRepeaters++;
+      coverage.rptr.forEach(repeaterId => {
+        const idLower = repeaterId.toLowerCase();
+        repeaterGeohashCount.set(idLower, (repeaterGeohashCount.get(idLower) || 0) + 1);
+      });
+    }
   });
 
   // Get all repeaters with their geohash counts
@@ -568,7 +572,19 @@ function updateRepeatersList(contentDiv) {
   repeaterStats.sort((a, b) => b.geohashCount - a.geohashCount);
 
   if (repeaterStats.length === 0) {
-    contentDiv.innerHTML = '<div style="padding: 20px; color: #e2e8f0; text-align: center;">No repeaters with coverage data found.</div>';
+    const totalRepeaters = idToRepeaters.size;
+    const totalCoverage = hashToCoverage.size;
+    contentDiv.innerHTML = `<div style="padding: 20px; color: #e2e8f0; text-align: center;">
+      No repeaters with coverage data found.<br/><br/>
+      <div style="font-size: 11px; color: #9ca3af; margin-top: 8px;">
+        Total repeaters: ${totalRepeaters}<br/>
+        Total coverage areas: ${totalCoverage}<br/>
+        Coverage with repeaters: ${coverageWithRepeaters}
+      </div>
+      <div style="font-size: 11px; color: #9ca3af; margin-top: 12px;">
+        Tip: Add samples with repeater paths to populate this list.
+      </div>
+    </div>`;
     return;
   }
 
