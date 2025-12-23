@@ -6,7 +6,29 @@ const coverageModel = require('../models/coverage');
 router.get('/get-coverage', async (req, res, next) => {
   try {
     const coverage = await coverageModel.getAll();
-    res.json(coverage);
+    
+    // Format response to match Cloudflare format
+    const formatted = coverage.map(c => {
+      const lastHeard = c.lastHeard || 0;
+      const lastObserved = c.lastObserved || lastHeard;
+      const updated = c.updated || lastHeard;
+      
+      return {
+        hash: c.hash,
+        observed: c.observed ?? c.heard ?? 0,
+        heard: c.heard ?? 0,
+        lost: c.lost ?? 0,
+        snr: c.snr ?? null,
+        rssi: c.rssi ?? null,
+        updated: updated,
+        lastObserved: lastObserved,
+        lastHeard: lastHeard,
+        hitRepeaters: c.hitRepeaters ?? [],
+        values: c.values || []
+      };
+    });
+    
+    res.json(formatted);
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,9 @@
-import geo from 'ngeohash';
+// Import from CDN since browsers can't directly import npm packages
+// Using unpkg.com with ?module parameter for ES modules
+import geo from 'https://unpkg.com/ngeohash@0.6.3/index.js?module';
+import aes from 'https://unpkg.com/aes-js@3.1.2/index.js?module';
 
-export { geo };  // export the ngeohash API.
+export { aes, geo };  // export the ngeohash API.
 
 // Generates the key for a sample given lat/lon.
 export function sampleKey(lat, lon) {
@@ -120,3 +123,16 @@ export async function retry(func, maxRetries = 5, retryDelayMs = 500) {
     }
   }
 }
+
+export function definedOr(fn, a, b) {
+  if (a != null && b != null)
+    return fn(a, b);
+
+  if (a == null && b == null)
+    return null;
+
+  return a != null ? a : b;
+}
+
+export function or(a, b) { return a || b; }
+export function and(a, b) { return a && b; }

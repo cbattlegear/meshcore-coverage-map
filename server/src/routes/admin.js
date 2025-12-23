@@ -37,8 +37,13 @@ router.post('/consolidate', async (req, res, next) => {
       }
       hashToSamples.get(coverageHash).push({
         key: sample.geohash,
-        time: sample.time,
-        path: sample.path || []
+        metadata: {
+          time: sample.time,
+          path: sample.path || [],
+          observed: sample.observed ?? (sample.path && sample.path.length > 0),
+          snr: sample.snr,
+          rssi: sample.rssi
+        }
       });
     });
     
@@ -62,7 +67,8 @@ router.post('/consolidate', async (req, res, next) => {
       const samples = hashToSamples.get(geohash);
       for (const sample of samples) {
         try {
-          await archiveModel.insert(sample.key, sample.time, sample.path);
+          const metadata = sample.metadata;
+          await archiveModel.insert(sample.key, metadata.time, metadata.path, metadata.observed, metadata.snr, metadata.rssi);
           result.archive_ok++;
           
           try {

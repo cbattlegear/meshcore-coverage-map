@@ -1,40 +1,68 @@
-import { WebBleConnection, Constants } from "./mc/index.js";
 import {
+  BufferUtils,
+  Constants,
+  Packet,
+  WebBleConnection
+} from "./mc/index.js";
+import BufferReader from "./mc/buffer_reader.js";
+// Import aes-js directly from CDN since it's only needed in wardrive.js
+import aes from 'https://cdn.skypack.dev/aes-js@3.1.2';
+// Import colord for color manipulation
+import { colord } from 'https://cdn.skypack.dev/colord@2.9.3';
+import {
+  ageInDays,
   centerPos,
   coverageKey,
   geo,
-  haversineMiles,
-  isValidLocation
+  isValidLocation,
+  maxDistanceMiles,
+  sampleKey,
+  posFromHash
 } from "./shared.js";
+
+// Fade a color by desaturating and lightening it
+function fadeColor(color, amount) {
+  const c = colord(color);
+  const v = c.toHsv().v;
+  return c.desaturate(amount).lighten(amount * (1 - (v / 255))).toHex();
+}
 
 // --- DOM helpers ---
 const $ = id => document.getElementById(id);
 const statusEl = $("status");
 const deviceNameEl = $("deviceName");
 const channelInfoEl = $("channelInfo");
-const lastSampleInfoEl = $("lastSampleInfo");
-const currentTileEl = $("currentTileHash");
-const currentNeedsPingEl = $("currentNeedsPing");
+const lastSampleInfoEl = $("lastSampleInfo"); // May be null in simplified UI
+const currentTileEl = $("currentTileHash"); // May be null in simplified UI
+const currentNeedsPingEl = $("currentNeedsPing"); // May be null in simplified UI
 const mapEl = $("map");
-const controlsSection = $("controls");
-const intervalSection = $("interval-controls");
+const controlsSection = $("controls"); // May be null in simplified UI
+const intervalSection = $("interval-controls"); // May be null in simplified UI
 const ignoredRepeaterId = $("ignoredRepeaterId");
-const logBody = $("logBody");
-const debugConsole = $("debugConsole");
+const logBody = $("logBody"); // May be null in simplified UI
+const debugConsole = $("debugConsole"); // May be null in simplified UI
 
 const connectBtn = $("connectBtn");
-const disconnectBtn = $("disconnectBtn");
+const disconnectBtn = $("disconnectBtn"); // May be null in simplified UI
 const sendPingBtn = $("sendPingBtn");
 const autoToggleBtn = $("autoToggleBtn");
-const clearLogBtn = $("clearLogBtn");
-const pingModeSelect = $("pingModeSelect");
-const intervalSelect = $("intervalSelect");
-const minDistanceSelect = $("minDistanceSelect");
+const clearLogBtn = $("clearLogBtn"); // May be null in simplified UI
+const pingModeSelect = $("pingModeSelect"); // May be null in simplified UI
+const intervalSelect = $("intervalSelect"); // May be null in simplified UI
+const minDistanceSelect = $("minDistanceSelect"); // May be null in simplified UI
 const ignoredRepeaterBtn = $("ignoredRepeaterBtn");
 
+// Channel key is derived from the channel hashtag.
+// Channel hash is derived from the channel key.
+// If you change the channel name, these must be recomputed.
+const wardriveChannelHash = parseInt("e0", 16);
+const wardriveChannelKey = BufferUtils.hexToBytes("4076c315c1ef385fa93f066027320fe5");
 const wardriveChannelName = "#wardrive";
+const refreshTileAge = 1; // Tiles older than this (days) will get pinged again.
 
 // --- Global Init ---
+const utf8decoder = new TextDecoder(); // default 'utf-8'
+const repeatEmitter = new EventTarget();
 const map = L.map('map', {
   worldCopyJump: true,
   dragging: true,
@@ -52,11 +80,14 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© OpenStreetMap contributors'
 }).addTo(map);
 const coverageLayer = L.layerGroup().addTo(map);
+const pingLayer = L.layerGroup().addTo(map);
 const currentLocMarker = L.circleMarker([0, 0], {
   radius: 3,
   weight: 0,
   color: "red",
-  fillOpacity: .8
+  fillOpacity: .8,
+  interactive: false,
+  pane: "tooltipPane"
 }).addTo(map);
 
 function setStatus(text, color = null) {
@@ -88,6 +119,7 @@ const state = {
   wakeLock: null,
   ignoredId: null, // Allows a repeater to be ignored.
   coveredTiles: new Set(),
+  coverageTiles: new Map(), // tileId -> { o: 0|1, h: 0|1, a: ageInDays }
   locationTimer: null,
   lastPosUpdate: 0, // Timestamp of last location update.
   currentPos: [0, 0],
@@ -96,11 +128,11 @@ const state = {
 
 // --- Utility functions ---
 function getIntervalMinutes() {
-  return parseFloat(intervalSelect.value || "0.5");
+  return parseFloat(intervalSelect?.value || "0.5");
 }
 
 function getMinDistanceMiles() {
-  return parseFloat(minDistanceSelect.value || "0.5");
+  return parseFloat(minDistanceSelect?.value || "0.5");
 }
 
 function formatIsoLocal(iso) {
@@ -122,12 +154,45 @@ async function refreshCoverageData() {
   }
 }
 
+// Merge coverage state: o (observed), h (heard), a (age)
+// Prefer observed over heard, prefer newest age
+function mergeCoverage(id, value) {
+  const prev = state.coverageTiles.get(id);
+  if (!prev) {
+    state.coverageTiles.set(id, value);
+    return;
+  }
+
+  // o is 0|1 for "observed" -- prefer observed.
+  // h is 0|1 for "heard" -- prefer heard.
+  // a is "age in days" -- prefer newest.
+  prev.o = Math.max(value.o, prev.o);
+  prev.h = Math.max(value.h, prev.h);
+  prev.a = Math.min(value.a, prev.a);
+}
+
 function getCoverageBoxMarker(tileId) {
+  function getMarkerColor(info) {
+    if (info.o)
+      return '#398821' // Observed - Green
+    if (info.h)
+      return '#FEAA2C' // Repeated - Orange
+    return '#E04748' // Miss - Red
+  }
+
+  const info = state.coverageTiles.get(tileId) || { o: 0, h: 0, a: refreshTileAge + 1 };
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(tileId);
+  const color = getMarkerColor(info);
+  const fresh = info.a <= refreshTileAge;
+  const fillColor = fresh ? color : fadeColor(color, .4);
+
   const style = {
-    color: "#FFAB77",
+    color: color,
     weight: 1,
-    fillOpacity: 0.4,
+    fillColor: fillColor,
+    fillOpacity: 0.6,
+    pane: "overlayPane",
+    interactive: false
   };
   return L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
 }
@@ -141,6 +206,54 @@ function redrawCoverage() {
   state.coveredTiles.forEach(c => {
     addCoverageBox(c);
   });
+}
+
+// --- Ping history and markers ---
+async function getSample(sampleId) {
+  try {
+    const resp = await fetch(`/get-samples?p=${sampleId.substring(0, 6)}`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data.keys?.find(s => s.name === sampleId);
+  } catch (e) {
+    console.error("Failed to get sample", e);
+    return null;
+  }
+}
+
+function addPingHistory(ping) {
+  const existing = pingLayer.getLayers().find(m => m.ping?.hash === ping.hash);
+  if (existing) {
+    pingLayer.removeLayer(existing);
+  }
+  const marker = addPingMarker(ping);
+  pingLayer.addLayer(marker);
+}
+
+function addPingMarker(ping) {
+  function getPingColor(p) {
+    if (p.observed === true)
+      return '#398821' // Observed - Green
+    if (p.heard == true)
+      return '#FEAA2C' // Repeated - Orange
+    if (p.heard === false)
+      return '#E04748' // Miss - Red
+    return "#999999"; // Unknown - Gray
+  }
+
+  const pos = posFromHash(ping.hash);
+  const pingMarker = L.circleMarker(pos, {
+    radius: 4,
+    weight: 0.75,
+    color: "white",
+    fillColor: getPingColor(ping),
+    fillOpacity: 1,
+    pane: "markerPane",
+    className: "marker-shadow",
+    interactive: false
+  });
+  pingMarker.ping = ping;
+  return pingMarker;
 }
 
 // --- Local storage log ---
@@ -176,6 +289,7 @@ function addLogEntry(entry) {
 }
 
 function renderLog() {
+  if (!logBody) return; // Log table not present in simplified UI
   logBody.innerHTML = "";
   const rows = state.log.reverse(); // Newest first
   for (const entry of rows) {
@@ -206,6 +320,7 @@ function renderLog() {
 }
 
 function updateLastSampleInfo() {
+  if (!lastSampleInfoEl) return;
   if (!state.lastSample) {
     lastSampleInfoEl.textContent = "None yet";
     return;
@@ -246,7 +361,7 @@ function promptIgnoredId() {
 }
 
 function updateIgnoreId() {
-  ignoredRepeaterId.innerText = state.ignoredId ?? "<none>";
+  if (ignoredRepeaterId) ignoredRepeaterId.innerText = state.ignoredId ?? "<none>";
 }
 
 // --- Geolocation ---
@@ -274,8 +389,8 @@ async function updateCurrentPosition() {
 
   const coverageTileId = coverageKey(lat, lon);
   const needsPing = !state.coveredTiles.has(coverageTileId);
-  currentTileEl.innerText = coverageTileId;
-  currentNeedsPingEl.innerText = needsPing ? "✅" : "⛔";
+  if (currentTileEl) currentTileEl.innerText = coverageTileId;
+  if (currentNeedsPingEl) currentNeedsPingEl.innerText = needsPing ? "✅" : "⛔";
 
   state.lastPosUpdate = Date.now();
 }
@@ -350,7 +465,7 @@ async function createWardriveChannel() {
   );
 
   if (!create) {
-    channelInfoEl.textContent = `No "${wardriveChannelName}" channel; ping disabled.`;
+    if (channelInfoEl) channelInfoEl.textContent = `No "${wardriveChannelName}" channel; ping disabled.`;
     throw new Error("Wardrive channel not created");
   }
 
@@ -395,12 +510,38 @@ async function ensureWardriveChannel() {
     channel = await createWardriveChannel();
   }
 
-  channelInfoEl.textContent = `Using ${channel.name} on slot ${channel.channelIdx}`;
+  if (channelInfoEl) channelInfoEl.textContent = `Using ${channel.name} on slot ${channel.channelIdx}`;
   state.wardriveChannel = channel;
   return channel;
 }
 
 // --- Ping logic ---
+async function listenForRepeat(message, timeoutMs = 1000) {
+  return new Promise((resolve, reject) => {
+    const on = e => {
+      const detail = e.detail;
+      if (detail.text?.endsWith(message)) {
+        cleanup();
+        resolve(detail);
+      } else {
+        log(`Ignored repeat ${JSON.stringify(detail)}`);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("timeout"));
+    }, timeoutMs);
+
+    function cleanup() {
+      repeatEmitter.removeEventListener("repeat", on);
+      if (timeout) clearTimeout(timeout);
+    }
+
+    repeatEmitter.addEventListener("repeat", on);
+  });
+}
+
 async function sendPing({ auto = false } = {}) {
   if (!state.connection) {
     setStatus("Not connected", "text-red-300");
@@ -431,8 +572,12 @@ async function sendPing({ auto = false } = {}) {
     return;
   }
 
-  const [lat, lon] = pos;
-  const coverageTileId = coverageKey(lat, lon);
+  // Until everything is migrated to use hash everywhere,
+  // make sure the lat/lon in the ping is derived from the hash.
+  const [rawLat, rawLon] = pos;
+  const sampleId = sampleKey(rawLat, rawLon);
+  const coverageTileId = sampleId.substring(0, 6);
+  const [lat, lon] = posFromHash(sampleId);
   let distanceMilesValue = null;
 
   if (state.pingMode === "interval") {
@@ -485,13 +630,34 @@ async function sendPing({ auto = false } = {}) {
     notes = "Mesh Fail: " + e.message;
   }
 
+  let repeat = null;
+  if (sentToMesh) {
+    try {
+      repeat = await listenForRepeat(text);
+      log(`Heard repeat from ${repeat.repeater}`);
+    } catch {
+      log("Didn't hear a repeat in time, assuming lost.");
+    }
+  }
+
   if (sentToMesh) {
     // Send sample to service.
     try {
+      const data = { lat, lon };
+      if (repeat) {
+        data.path = [repeat.repeater];
+        data.observed = true; // We heard a repeat, so this is observed
+        if (!repeat.hitMobileRepeater) {
+          // Don't include signal info when using a mobile repeater.
+          data.snr = repeat.lastSnr;
+          data.rssi = repeat.lastRssi;
+        }
+      }
+
       await fetch("/put-sample", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon }),
+        body: JSON.stringify(data),
       });
       sentToService = true;
     } catch (e) {
@@ -500,17 +666,41 @@ async function sendPing({ auto = false } = {}) {
       notes = "Web Fail: " + e.message;
     }
 
-    // Even if sending the sample POST failed, consider this
-    // the new 'last sample' to avoid spam.
-    const nowIso = new Date().toISOString();
-    state.lastSample = { lat, lon, timestamp: nowIso };
-    updateLastSampleInfo();
-
-    if (!state.coveredTiles.has(coverageTileId)) {
-      state.coveredTiles.add(coverageTileId);
-      addCoverageBox(coverageTileId);
-    }
+    // Update the tile state immediately.
+    // Setting "age" to the cutoff so it stops getting pinged.
+    const heard = repeat?.repeater !== undefined;
+    mergeCoverage(coverageTileId, { o: 0, h: heard ? 1 : 0, a: refreshTileAge });
   }
+
+  // Even if sending the sample POST failed, consider this
+  // the new 'last sample' to avoid spam.
+  const nowIso = new Date().toISOString();
+  state.lastSample = { lat, lon, timestamp: nowIso };
+  updateLastSampleInfo();
+
+  if (!state.coveredTiles.has(coverageTileId)) {
+    state.coveredTiles.add(coverageTileId);
+    addCoverageBox(coverageTileId);
+  }
+
+  // Wait a bit, then check if the sample was heard
+  setTimeout(async () => {
+    const sample = await getSample(sampleId);
+    const ping = { hash: sampleId };
+
+    if (sample) {
+      ping.observed = sample.metadata?.observed ?? sample.observed ?? false;
+      ping.heard = (sample.metadata?.path?.length > 0) ?? (sample.path?.length > 0);
+      mergeCoverage(coverageTileId, {
+        o: ping.observed ? 1 : 0,
+        h: ping.heard ? 1 : 0,
+        a: ageInDays(sample.metadata?.time ?? sample.time)
+      });
+    }
+
+    addCoverageBox(coverageTileId);
+    addPingHistory(ping);
+  }, 2500);
 
   // Log result.
   const entry = {
@@ -609,8 +799,10 @@ async function handleConnect() {
     const connection = await WebBleConnection.open();
     state.connection = connection;
 
+    // Add handlers
     connection.on("connected", onConnected);
     connection.on("disconnected", onDisconnected);
+    connection.on(Constants.PushCodes.LogRxData, onLogRxData);
   } catch (e) {
     console.error("Failed to open BLE connection", e);
     setStatus("Failed to connect", "text-red-300");
@@ -630,9 +822,11 @@ async function handleDisconnect() {
 
 async function onConnected() {
   setStatus("Connected (syncing…)", "text-emerald-300");
-  disconnectBtn.disabled = false;
+  if (disconnectBtn) disconnectBtn.disabled = false;
   connectBtn.disabled = true;
-  controlsSection.classList.remove("hidden");
+  sendPingBtn.disabled = false;
+  autoToggleBtn.disabled = false;
+  if (controlsSection) controlsSection.classList.remove("hidden");
 
   try {
     try {
@@ -643,9 +837,11 @@ async function onConnected() {
 
     const selfInfo = await state.connection.getSelfInfo();
     state.selfInfo = selfInfo;
-    deviceNameEl.textContent = selfInfo?.name
-      ? `Device: ${selfInfo.name}`
-      : "Device connected";
+    if (deviceNameEl) {
+      deviceNameEl.textContent = selfInfo?.name
+        ? `Device: ${selfInfo.name}`
+        : "Device connected";
+    }
     setStatus(
       `Connected to ${selfInfo?.name ?? "MeshCore"}`,
       "text-emerald-300"
@@ -667,11 +863,20 @@ async function onConnected() {
 function onDisconnected() {
   stopAutoPing();
 
-  deviceNameEl.textContent = "";
-  channelInfoEl.textContent = "";
-  disconnectBtn.disabled = true;
+  // Remove handlers
+  if (state.connection) {
+    state.connection.off("connected", onConnected);
+    state.connection.off("disconnected", onDisconnected);
+    state.connection.off(Constants.PushCodes.LogRxData, onLogRxData);
+  }
+
+  if (deviceNameEl) deviceNameEl.textContent = "";
+  if (channelInfoEl) channelInfoEl.textContent = "";
+  if (disconnectBtn) disconnectBtn.disabled = true;
   connectBtn.disabled = false;
-  controlsSection.classList.add("hidden");
+  sendPingBtn.disabled = true;
+  autoToggleBtn.disabled = true;
+  if (controlsSection) controlsSection.classList.add("hidden");
 
   state.connection = null;
   state.wardriveChannel = null;
@@ -680,14 +885,73 @@ function onDisconnected() {
   setStatus("Disconnected", "text-red-300");
 }
 
+function onLogRxData(frame) {
+  const lastSnr = frame.lastSnr;
+  const lastRssi = frame.lastRssi;
+  let hitMobileRepeater = false;
+  const packet = Packet.fromBytes(frame.raw);
+
+  // Only care about flood messages to the wardrive channel.
+  if (!packet.isRouteFlood()
+    || packet.getPayloadType() != Packet.PAYLOAD_TYPE_GRP_TXT
+    || packet.path.length == 0)
+    return;
+
+  // First repeater (ignoring mobile repeater).
+  let firstRepeater = packet.path[0].toString(16);
+  if (firstRepeater === state.ignoredId) {
+    firstRepeater = packet.path[1]?.toString(16);
+    hitMobileRepeater = true;
+  }
+
+  // No valid path.
+  if (firstRepeater === undefined)
+    return;
+
+  const reader = new BufferReader(packet.payload);
+  const groupHash = reader.readByte();
+  const mac = reader.readBytes(2); // Validate?
+  const encrypted = reader.readRemainingBytes();
+
+  // Invalid data for AES.
+  if (encrypted.length % 16 !== 0)
+    return;
+
+  // Definitely not to wardrive channel.
+  if (groupHash !== wardriveChannelHash)
+    return;
+
+  // Probably for wardrive, give it a try.
+  try {
+    const aesEcb = new aes.ModeOfOperation.ecb(wardriveChannelKey);
+    const decrypted = aesEcb.decrypt(encrypted);
+    const msgReader = new BufferReader(decrypted);
+    msgReader.readBytes(5); // Skip Timestamp and Flags, remove trailing null padding.
+    const msgText = utf8decoder.decode(msgReader.readRemainingBytes()).replace(/\0/g, '');
+    repeatEmitter.dispatchEvent(new CustomEvent("repeat", {
+      detail: {
+        repeater: firstRepeater,
+        text: msgText,
+        hitMobileRepeater: hitMobileRepeater,
+        lastSnr: lastSnr,
+        lastRssi: lastRssi
+      }
+    }));
+  } catch (e) {
+    log("Failed to decrypt message:", e);
+  }
+}
+
 // --- Event bindings ---
 connectBtn.addEventListener("click", () => {
   handleConnect().catch(console.error);
 });
 
-disconnectBtn.addEventListener("click", () => {
-  handleDisconnect().catch(console.error);
-});
+if (disconnectBtn) {
+  disconnectBtn.addEventListener("click", () => {
+    handleDisconnect().catch(console.error);
+  });
+}
 
 sendPingBtn.addEventListener("click", () => {
   sendPing({ auto: false }).catch(console.error);
@@ -702,32 +966,38 @@ autoToggleBtn.addEventListener("click", async () => {
   }
 });
 
-pingModeSelect.addEventListener("change", async () => {
-  const pingMode = pingModeSelect.value;
+if (pingModeSelect) {
+  pingModeSelect.addEventListener("change", async () => {
+    const pingMode = pingModeSelect.value;
 
-  if (state.pingMode === pingMode) {
-    return;
-  }
+    if (state.pingMode === pingMode) {
+      return;
+    }
 
-  stopAutoPing();
-  state.pingMode = pingMode;
-  if (pingMode === "interval") {
-    intervalSection.classList.remove("hidden");
-  } else {
-    intervalSection.classList.add("hidden");
-  }
-});
+    stopAutoPing();
+    state.pingMode = pingMode;
+    if (intervalSection) {
+      if (pingMode === "interval") {
+        intervalSection.classList.remove("hidden");
+      } else {
+        intervalSection.classList.add("hidden");
+      }
+    }
+  });
+}
 
 ignoredRepeaterBtn.addEventListener("click", promptIgnoredId);
 
-clearLogBtn.addEventListener("click", () => {
-  if (!confirm("Clear local wardrive log?")) return;
-  state.log = [];
-  state.lastSample = null;
-  updateLastSampleInfo();
-  saveLog();
-  renderLog();
-});
+if (clearLogBtn) {
+  clearLogBtn.addEventListener("click", () => {
+    if (!confirm("Clear local wardrive log?")) return;
+    state.log = [];
+    state.lastSample = null;
+    updateLastSampleInfo();
+    saveLog();
+    renderLog();
+  });
+}
 
 // Automatically release wake lock when the page is hidden.
 document.addEventListener('visibilitychange', async () => {

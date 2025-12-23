@@ -4,7 +4,9 @@ import {
   coverageKey,
   geo,
   haversineMiles,
-  isValidLocation
+  isValidLocation,
+  sampleKey,
+  posFromHash
 } from "/content/shared.js";
 
 // --- DOM helpers ---
@@ -431,8 +433,12 @@ async function sendPing({ auto = false } = {}) {
     return;
   }
 
-  const [lat, lon] = pos;
-  const coverageTileId = coverageKey(lat, lon);
+  // Until everything is migrated to use hash everywhere,
+  // make sure the lat/lon in the ping is derived from the hash.
+  const [rawLat, rawLon] = pos;
+  const sampleId = sampleKey(rawLat, rawLon);
+  const coverageTileId = sampleId.substring(0, 6);
+  const [lat, lon] = posFromHash(sampleId);
   let distanceMilesValue = null;
 
   if (state.pingMode === "interval") {

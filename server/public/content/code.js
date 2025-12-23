@@ -35,77 +35,7 @@ const edgeLayer = L.layerGroup().addTo(map);
 const sampleLayer = L.layerGroup().addTo(map);
 const repeaterLayer = L.layerGroup().addTo(map);
 
-// Repeaters list control (top-right corner, below existing controls)
-const repeatersControl = L.control({ position: 'topright' });
-repeatersControl.onAdd = m => {
-  const div = L.DomUtil.create('div', 'leaflet-control');
-  div.style.marginTop = '10px'; // Space below existing control box
-  div.innerHTML = `
-    <button id="repeaters-button" style="
-      background: #4a5568;
-      color: white;
-      border: 1px solid #718096;
-      border-radius: 4px;
-      padding: 8px 12px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-      white-space: nowrap;
-      width: 100%;
-    ">Top Repeaters</button>
-    <div id="repeaters-list" style="
-      display: none;
-      margin-top: 4px;
-      background: #2d3748;
-      border: 1px solid #4a5568;
-      border-radius: 4px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-      width: 100%;
-      max-width: 400px;
-      max-height: 500px;
-      overflow-y: auto;
-    ">
-      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0;">
-        Repeaters by Coverage
-      </div>
-      <div id="repeaters-list-content" style="padding: 0;"></div>
-    </div>
-  `;
-  
-  const button = div.querySelector("#repeaters-button");
-  const list = div.querySelector("#repeaters-list");
-  const content = div.querySelector("#repeaters-list-content");
-  
-  button.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (list.style.display === "none") {
-      updateRepeatersList(content);
-      list.style.display = "block";
-    } else {
-      list.style.display = "none";
-    }
-  });
-  
-  // Close when clicking outside
-  const closeHandler = () => {
-    list.style.display = "none";
-  };
-  map.on("click", closeHandler);
-  
-  // Prevent clicks inside the list from closing it
-  list.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
-  
-  L.DomEvent.disableClickPropagation(div);
-  L.DomEvent.disableScrollPropagation(div);
-  
-  return div;
-};
-repeatersControl.addTo(map);
-
-// Map controls
+// Map controls (must be added first so Top Repeaters appears below)
 const mapControl = L.control({ position: 'topright' });
 mapControl.onAdd = m => {
   const div = L.DomUtil.create('div', 'mesh-control leaflet-control');
@@ -175,8 +105,77 @@ mapControl.onAdd = m => {
 
   return div;
 };
-
 mapControl.addTo(map);
+
+// Repeaters list control (top-right corner, below existing controls)
+const repeatersControl = L.control({ position: 'topright' });
+repeatersControl.onAdd = m => {
+  const div = L.DomUtil.create('div', 'leaflet-control');
+  div.style.marginTop = '10px'; // Space below existing control box
+  div.innerHTML = `
+    <button id="repeaters-button" style="
+      background: #4a5568;
+      color: white;
+      border: 1px solid #718096;
+      border-radius: 4px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      white-space: nowrap;
+      width: 100%;
+    ">Top Repeaters</button>
+    <div id="repeaters-list" style="
+      display: none;
+      margin-top: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      width: 100%;
+      max-width: 400px;
+      max-height: 500px;
+      overflow-y: auto;
+    ">
+      <div style="padding: 12px; background: #1a202c; border-bottom: 1px solid #4a5568; font-weight: 600; color: #e2e8f0; position: sticky; top: 0;">
+        Repeaters by Coverage
+      </div>
+      <div id="repeaters-list-content" style="padding: 0;"></div>
+    </div>
+  `;
+  
+  const button = div.querySelector("#repeaters-button");
+  const list = div.querySelector("#repeaters-list");
+  const content = div.querySelector("#repeaters-list-content");
+  
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (list.style.display === "none") {
+      updateRepeatersList(content);
+      list.style.display = "block";
+    } else {
+      list.style.display = "none";
+    }
+  });
+  
+  // Close when clicking outside
+  const closeHandler = () => {
+    list.style.display = "none";
+  };
+  map.on("click", closeHandler);
+  
+  // Prevent clicks inside the list from closing it
+  list.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+  
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  
+  return div;
+};
+repeatersControl.addTo(map);
 
 // Max radius circle (only show if distance limit is enabled)
 if (maxDistanceMiles > 0) {
@@ -253,11 +252,19 @@ function coverageMarker(coverage) {
     fillOpacity: Math.max(opacity, 0.1),
   };
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
-  const details = `
+  let details = `
     <strong>${coverage.id}</strong><br/>
     Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>
-    Updated: ${date.toLocaleString()}
-    ${coverage.rptr.length === 0 ? '' : '<br/>Repeaters: ' + coverage.rptr.join(',')}`;
+    Updated: ${date.toLocaleString()}`;
+  if (coverage.rptr && coverage.rptr.length > 0) {
+    details += `<br/>Repeaters: ${coverage.rptr.join(',')}`;
+  }
+  if (coverage.snr !== null && coverage.snr !== undefined) {
+    details += `<br/>SNR: ${coverage.snr} dB`;
+  }
+  if (coverage.rssi !== null && coverage.rssi !== undefined) {
+    details += `<br/>RSSI: ${coverage.rssi} dBm`;
+  }
 
   rect.coverage = coverage;
   rect.bindPopup(details, { maxWidth: 320 });
@@ -291,13 +298,21 @@ function sampleMarker(s) {
   const date = new Date(fromTruncatedTime(s.time));
   const successPercent = (successRate * 100).toFixed(1);
   const repeaters = s.rptr || [];
-  const details = `
+  let details = `
     <strong>${s.id}</strong><br/>
     ${lat.toFixed(4)}, ${lon.toFixed(4)}<br/>
     Samples: ${s.total || 0} (${s.heard || 0} heard, ${s.lost || 0} lost)<br/>
-    Success Rate: ${successPercent}%<br/>
-    ${repeaters.length > 0 ? '<br/>Repeaters: ' + repeaters.join(', ') : ''}
-    Updated: ${date.toLocaleString()}`;
+    Success Rate: ${successPercent}%<br/>`;
+  if (repeaters.length > 0) {
+    details += `<br/>Repeaters: ${repeaters.join(', ')}`;
+  }
+  if (s.snr !== null && s.snr !== undefined) {
+    details += `<br/>SNR: ${s.snr} dB`;
+  }
+  if (s.rssi !== null && s.rssi !== undefined) {
+    details += `<br/>RSSI: ${s.rssi} dBm`;
+  }
+  details += `<br/>Updated: ${date.toLocaleString()}`;
   marker.bindPopup(details, { maxWidth: 320 });
   marker.on('add', () => updateSampleMarkerVisibility(marker));
   return marker;
@@ -316,14 +331,27 @@ function individualSampleMarker(sample) {
     fillOpacity: 0.8 
   };
   const marker = L.circleMarker([lat, lon], style);
-  const date = new Date(sample.metadata.time);
+  const timeValue = sample.metadata.time;
+  const date = timeValue ? new Date(typeof timeValue === 'string' ? parseInt(timeValue, 10) : timeValue) : null;
   const repeaters = sample.metadata.path || [];
-  const details = `
+  let details = `
     <strong>${sample.name}</strong><br/>
     ${lat.toFixed(4)}, ${lon.toFixed(4)}<br/>
-    Status: ${heard ? '<span style="color: green;">Heard</span>' : '<span style="color: red;">Lost</span>'}<br/>
-    ${repeaters.length > 0 ? '<br/>Repeaters: ' + repeaters.join(', ') : 'No repeaters heard'}<br/>
-    Time: ${date.toLocaleString()}`;
+    Status: ${heard ? '<span style="color: green;">Heard</span>' : '<span style="color: red;">Lost</span>'}<br/>`;
+  if (repeaters.length > 0) {
+    details += `<br/>Repeaters: ${repeaters.join(', ')}`;
+  } else {
+    details += '<br/>No repeaters heard';
+  }
+  if (sample.metadata.snr !== null && sample.metadata.snr !== undefined) {
+    details += `<br/>SNR: ${sample.metadata.snr} dB`;
+  }
+  if (sample.metadata.rssi !== null && sample.metadata.rssi !== undefined) {
+    details += `<br/>RSSI: ${sample.metadata.rssi} dBm`;
+  }
+  if (date && !isNaN(date.getTime())) {
+    details += `<br/>Time: ${date.toLocaleString()}`;
+  }
   marker.bindPopup(details, { maxWidth: 320 });
   return marker;
 }
@@ -527,27 +555,32 @@ function buildIndexes(nodes) {
   nodes.samples.forEach(s => {
     const key = s.id; // Already a 6-char geohash prefix from server
     let coverage = hashToCoverage.get(key);
+    const sampleHeard = s.heard || 0;
+    const sampleLost = s.lost || 0;
+    
     if (!coverage) {
       const { latitude: lat, longitude: lon } = geo.decode(key);
       coverage = {
         id: key,
         pos: [lat, lon],
-        rcv: s.heard || 0,
-        lost: s.lost || 0,
+        rcv: sampleHeard,
+        lost: sampleLost,
         time: s.time || 0,
-        rptr: s.rptr ? [...s.rptr] : [],
+        rptr: (s.path || s.rptr) ? [...(s.path || s.rptr)] : [],
       };
       hashToCoverage.set(key, coverage);
     } else {
-      // Merge sample data into existing coverage
-      coverage.rcv = (coverage.rcv || 0) + (s.heard || 0);
-      coverage.lost = (coverage.lost || 0) + (s.lost || 0);
+      // Merge sample data into existing coverage - samples should override coverage data
+      // since samples are the source of truth
+      coverage.rcv = sampleHeard;
+      coverage.lost = sampleLost;
       if (s.time > (coverage.time || 0)) {
         coverage.time = s.time;
       }
       // Merge repeaters (avoid duplicates)
-      if (s.rptr) {
-        s.rptr.forEach(r => {
+      const samplePath = s.path || s.rptr;
+      if (samplePath) {
+        samplePath.forEach(r => {
           const rLower = r.toLowerCase();
           if (!coverage.rptr.includes(rLower)) {
             coverage.rptr.push(rLower);
@@ -632,26 +665,21 @@ function updateRepeatersList(contentDiv) {
     return;
   }
 
-  // Create clean list
-  let html = '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
-  html += '<thead><tr style="background: #1a202c; color: #cbd5e0;">';
-  html += '<th style="padding: 10px 12px; text-align: left; border-bottom: 1px solid #4a5568; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">#</th>';
-  html += '<th style="padding: 10px 12px; text-align: left; border-bottom: 1px solid #4a5568; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">ID</th>';
-  html += '<th style="padding: 10px 12px; text-align: left; border-bottom: 1px solid #4a5568; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Name</th>';
-  html += '<th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #4a5568; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Geohashes</th>';
-  html += '</tr></thead><tbody>';
+  // Create simple concise list
+  let html = '<div style="padding: 8px;">';
   
-  repeaterStats.forEach((repeater, index) => {
-    const rowColor = index % 2 === 0 ? '#2d3748' : '#1a202c';
-    html += `<tr style="background: ${rowColor}; color: #e2e8f0; border-bottom: 1px solid #4a5568; transition: background 0.2s;">
-      <td style="padding: 10px 12px; color: #9ca3af; font-weight: 500;">${index + 1}</td>
-      <td style="padding: 10px 12px; font-family: 'Courier New', monospace; font-weight: 600; color: #60a5fa;">${escapeHtml(repeater.id)}</td>
-      <td style="padding: 10px 12px;">${escapeHtml(repeater.name)}</td>
-      <td style="padding: 10px 12px; text-align: right; color: #34d399; font-weight: 700; font-size: 14px;">${repeater.geohashCount}</td>
-    </tr>`;
+  repeaterStats.forEach((repeater) => {
+    const prefix = repeater.id.substring(0, 2).toUpperCase();
+    html += `<div style="padding: 8px 12px; color: #e2e8f0; border-bottom: 1px solid #4a5568; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <span style="font-family: 'Courier New', monospace; font-weight: 600; color: #60a5fa; min-width: 24px;">${escapeHtml(prefix)}</span>
+        <span>${escapeHtml(repeater.name)}</span>
+      </div>
+      <span style="color: #34d399; font-weight: 600; font-size: 13px;">${repeater.geohashCount}</span>
+    </div>`;
   });
   
-  html += '</tbody></table>';
+  html += '</div>';
   contentDiv.innerHTML = html;
 }
 
