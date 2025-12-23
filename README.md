@@ -2,13 +2,53 @@
 
 Self-hosted version of the MeshCore Coverage Map, migrated from Cloudflare to Node.js/Express with PostgreSQL.
 
+## Prerequisites
+
+**Only Docker and Docker Compose are required.** No Node.js, npm, or PostgreSQL installation needed.
+
+### Install Docker on Ubuntu/EC2
+
+```bash
+# Update system
+sudo apt update
+sudo apt upgrade -y
+
+# Install Docker
+sudo apt install -y docker.io docker-compose
+
+# Start and enable Docker
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# Add your user to docker group (to run without sudo)
+sudo usermod -aG docker $USER
+
+# Log out and back in for group changes to take effect
+exit
+```
+
+**Reconnect via SSH** after logging out.
+
+### Verify Docker Installation
+
+```bash
+docker --version
+docker-compose --version
+```
+
 ## Quick Start
 
 ```bash
+# 1. Clone the repository
 git clone <repository-url>
-cd meshcore-coverage-map-1/server
+cd meshcore-coverage-map/server
+
+# 2. Configure environment
 cp .env.example .env
-npm run docker:dev
+# Edit .env with your settings (optional for development)
+
+# 3. Start the application
+docker-compose up --build
 ```
 
 The application will be available at `http://localhost:3000`
@@ -17,14 +57,15 @@ The application will be available at `http://localhost:3000`
 
 ```bash
 cd server
-cp .env.example .env  # Edit with your settings
-npm run docker:dev
+cp .env.example .env  # Edit with your settings if needed
+docker-compose up --build
 ```
 
 **Useful commands:**
-- `npm run docker:dev:detached` - Run in background
-- `npm run docker:logs` - View logs
-- `npm run docker:down` - Stop containers
+- `docker-compose up -d --build` - Run in background
+- `docker-compose logs -f` - View logs
+- `docker-compose down` - Stop containers
+- `docker-compose restart` - Restart containers
 
 ## Production
 
@@ -42,7 +83,7 @@ npm run docker:dev
 
 3. **Start services:**
    ```bash
-   npm run docker:prod:detached
+   docker-compose -f docker-compose.prod.yml up -d --build
    ```
 
 ## Configuration
@@ -181,7 +222,7 @@ docker exec west-meshmap-db psql -U west_meshmap -d west_meshmap
 ```
 
 **Port already in use:**
-Change `PORT` in `.env` or stop the process using port 3000.
+Change `HTTP_PORT` in `.env` or stop the process using the port.
 
 **Docker permission denied:**
 ```bash

@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "migrate": "psql $DATABASE_URL -f migrations/001_initial_schema.sql",
     "test-data": "node scripts/generate-test-data.js",
+    "_comment": "Docker scripts are optional convenience wrappers. Use 'docker-compose' directly from server/ directory.",
     "docker:dev": "docker-compose up --build",
     "docker:dev:detached": "docker-compose up -d --build",
     "docker:down": "docker-compose down",

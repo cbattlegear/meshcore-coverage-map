@@ -4,12 +4,13 @@
   "private": true,
   "description": "MeshCore Coverage Map - Self-hosted version",
   "scripts": {
-    "docker:dev": "cd server && npm run docker:dev",
-    "docker:dev:detached": "cd server && npm run docker:dev:detached",
-    "docker:down": "cd server && npm run docker:down",
-    "docker:logs": "cd server && npm run docker:logs",
-    "docker:prod": "cd server && npm run docker:prod",
-    "docker:prod:detached": "cd server && npm run docker:prod:detached"
+    "_comment": "These scripts are optional convenience wrappers. You can use docker-compose directly without npm.",
+    "docker:dev": "cd server && docker-compose up --build",
+    "docker:dev:detached": "cd server && docker-compose up -d --build",
+    "docker:down": "cd server && docker-compose down",
+    "docker:logs": "cd server && docker-compose logs -f",
+    "docker:prod": "cd server && docker-compose -f docker-compose.prod.yml up --build",
+    "docker:prod:detached": "cd server && docker-compose -f docker-compose.prod.yml up -d --build"
   }
 }
 
