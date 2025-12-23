@@ -17,7 +17,6 @@
     "docker:prod:detached": "docker-compose -f docker-compose.prod.yml up -d --build"
   },
   "dependencies": {
-    "aes-js": "^3.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

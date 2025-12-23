@@ -244,12 +244,18 @@ function coverageMarker(coverage) {
   const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
   // Use gradient color based on success rate
   const color = successRateToColor(heardRatio);
-  const date = new Date(fromTruncatedTime(coverage.time));
-  const opacity = 0.75 * sigmoid(totalSamples, 1.2, 2) * (heardRatio > 0 ? heardRatio : 1);
+  const date = new Date(fromTruncatedTime(coverage.time || 0));
+  // Ensure tiles with only lost samples are visible
+  // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
+  const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
+  // For tiles with only lost samples, use higher minimum opacity
+  const opacity = heardRatio > 0 
+    ? baseOpacity * heardRatio 
+    : Math.max(baseOpacity, 0.4); // At least 40% opacity for lost-only tiles
   const style = {
     color: color,
     weight: 1,
-    fillOpacity: Math.max(opacity, 0.1),
+    fillOpacity: Math.max(opacity, 0.2), // Minimum 20% opacity for all tiles
   };
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
   let details = `
@@ -547,6 +553,20 @@ function buildIndexes(nodes) {
     const { latitude: lat, longitude: lon } = geo.decode(c.id);
     c.pos = [lat, lon];
     if (c.rptr === undefined) c.rptr = [];
+    // Map backend time fields to frontend time field
+    // Backend sends ut (updated time), lht (last heard time), lot (last observed time)
+    // Frontend expects time field
+    if (!c.time && c.ut) {
+      c.time = c.ut;
+    } else if (!c.time && c.lot) {
+      c.time = c.lot;
+    } else if (!c.time && c.lht) {
+      c.time = c.lht;
+    }
+    // Map backend rcv field (if present) or use heard
+    if (c.rcv === undefined && c.heard !== undefined) {
+      c.rcv = c.heard;
+    }
     hashToCoverage.set(c.id, c);
   });
 
