@@ -2,7 +2,8 @@ services:
   db:
     image: postgres:15-alpine
     container_name: ${INSTANCE_NAME:-default}-meshmap-db-prod
-    # Load DB credentials from .env file
+    # Load DB credentials from server/.env file
+    # Note: Use ./docker-compose.sh to run commands (it loads server/.env for variable substitution)
     env_file:
       - server/.env
     environment:

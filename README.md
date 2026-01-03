@@ -48,23 +48,25 @@ cp server/.env.example server/.env
 # Edit server/.env with your settings (optional for development)
 
 # 3. Start the application
-docker-compose up --build
+./docker-compose.sh up --build
 ```
 
 The application will be available at `http://localhost:3000`
+
+**Note:** This project uses `./docker-compose.sh` instead of `docker-compose` directly. The helper script automatically loads `server/.env` for Docker Compose variable substitution, which is required for database credentials and other configuration.
 
 ## Development
 
 ```bash
 cp server/.env.example server/.env  # Edit with your settings if needed
-docker-compose up --build
+./docker-compose.sh up --build
 ```
 
 **Useful commands:**
-- `docker-compose up -d --build` - Run in background
-- `docker-compose logs -f` - View logs
-- `docker-compose down` - Stop containers
-- `docker-compose restart` - Restart containers
+- `./docker-compose.sh up -d --build` - Run in background
+- `./docker-compose.sh logs -f` - View logs
+- `./docker-compose.sh down` - Stop containers
+- `./docker-compose.sh restart` - Restart containers
 
 ## Production
 
@@ -76,12 +78,12 @@ docker-compose up --build
 
 2. **Stop any existing containers:**
    ```bash
-   docker-compose -f docker-compose.prod.yml down
+   ./docker-compose.sh -f docker-compose.prod.yml down
    ```
 
 3. **Start services:**
    ```bash
-   docker-compose -f docker-compose.prod.yml up -d --build
+   ./docker-compose.sh -f docker-compose.prod.yml up -d --build
    ```
 
 ## Configuration
@@ -154,10 +156,10 @@ DB_PASSWORD=east_password
 Use the `-p` flag to set different project names:
 ```bash
 # West instance
-docker-compose -p west up --build
+./docker-compose.sh -p west up --build
 
 # East instance  
-docker-compose -p east up --build
+./docker-compose.sh -p east up --build
 ```
 
 This ensures:
@@ -180,8 +182,8 @@ For automatic data collection from MQTT feeds:
 
 2. **Start with Docker:**
    ```bash
-   docker-compose up -d mqtt-scraper
-   docker-compose logs -f mqtt-scraper
+   ./docker-compose.sh up -d mqtt-scraper
+   ./docker-compose.sh logs -f mqtt-scraper
    ```
 
 **Configuration example:**
@@ -241,16 +243,16 @@ exit  # Reconnect
 
 **Docker Compose "ContainerConfig" error:**
 ```bash
-docker-compose -f docker-compose.prod.yml down
-docker-compose -f docker-compose.prod.yml up -d --build
+./docker-compose.sh -f docker-compose.prod.yml down
+./docker-compose.sh -f docker-compose.prod.yml up -d --build
 ```
 
 **View logs:**
 ```bash
 # For default instance
-docker-compose logs -f app
-docker-compose logs -f db
-docker-compose logs -f mqtt-scraper
+./docker-compose.sh logs -f app
+./docker-compose.sh logs -f db
+./docker-compose.sh logs -f mqtt-scraper
 
 # For named instance, use container names
 docker logs -f west-meshmap-app
