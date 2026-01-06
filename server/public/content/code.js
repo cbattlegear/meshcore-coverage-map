@@ -20,6 +20,7 @@ let repeaterRenderMode = 'all';
 let repeaterSearch = '';
 let showSamples = false;
 let colorPalette = 'red-yellow-green'; // 'red-yellow-green', 'blue', 'patterns'
+let queryMode = 'coverage'; // 'coverage', 'observed-pct', 'heard-pct', 'last-updated', 'past-day', 'repeater-count', 'sample-count'
 
 // Data
 let nodes = null; // Graph data from the last refresh
@@ -40,6 +41,20 @@ mapControl.onAdd = m => {
   const div = L.DomUtil.create('div', 'mesh-control leaflet-control');
 
   div.innerHTML = `
+    <div class="mesh-control-row">
+      <label>
+        Query:
+        <select id="query-mode-select">
+          <option value="coverage" selected="true">Coverage</option>
+          <option value="observed-pct">Observed %</option>
+          <option value="heard-pct">Heard %</option>
+          <option value="last-updated">Last Updated</option>
+          <option value="past-day">Past Day</option>
+          <option value="repeater-count">Repeater Count</option>
+          <option value="sample-count">Sample Count</option>
+        </select>
+      </label>
+    </div>
     <div class="mesh-control-row">
       <label>
         Color Palette:
@@ -77,6 +92,14 @@ mapControl.onAdd = m => {
       <button type="button" id="refresh-map-button">Refresh map</button>
     </div>
   `;
+
+  div.querySelector("#query-mode-select")
+    .addEventListener("change", (e) => {
+      queryMode = e.target.value;
+      if (nodes) {
+        renderNodes(nodes);
+      }
+    });
 
   div.querySelector("#color-palette-select")
     .addEventListener("change", (e) => {
@@ -524,6 +547,93 @@ function successRateToColor(rate) {
   return paletteRedYellowGreen(clampedRate);
 }
 
+// Get value for current query mode (0-1 for color mapping)
+function getQueryValue(coverage) {
+  switch (queryMode) {
+    case 'coverage': {
+      const totalSamples = coverage.rcv + coverage.lost;
+      return totalSamples > 0 ? coverage.rcv / totalSamples : 0;
+    }
+    case 'observed-pct': {
+      // Observed %: obs / total samples
+      const totalSamples = coverage.rcv + coverage.lost;
+      const obs = coverage.obs ?? 0;
+      return totalSamples > 0 ? obs / totalSamples : 0;
+    }
+    case 'heard-pct': {
+      // Heard %: rcv / (rcv + lost)
+      const totalSamples = coverage.rcv + coverage.lost;
+      return totalSamples > 0 ? coverage.rcv / totalSamples : 0;
+    }
+    case 'last-updated': {
+      // Color by recency: newer = higher value (1 = very recent, 0 = very old)
+      const truncatedTime = coverage.time || coverage.ut || coverage.lot || coverage.lht || 0;
+      if (truncatedTime === 0) return 0.0; // No time data = old
+      const timeMs = fromTruncatedTime(truncatedTime);
+      const nowMs = Date.now();
+      const ageMs = nowMs - timeMs;
+      const ageDays = ageMs / (1000 * 86400);
+      // Map: 0 days = 1.0, 7 days = 0.5, 30 days = 0.0
+      if (ageDays <= 0) return 1.0;
+      if (ageDays >= 30) return 0.0;
+      return 1.0 - (ageDays / 30);
+    }
+    case 'past-day': {
+      // Only show if within past 24h, otherwise return 0 (will be filtered)
+      const truncatedTime = coverage.time || coverage.ut || coverage.lot || coverage.lht || 0;
+      if (truncatedTime === 0) return 0; // No time data = filter out
+      const timeMs = fromTruncatedTime(truncatedTime);
+      const nowMs = Date.now();
+      const ageMs = nowMs - timeMs;
+      const ageDays = ageMs / (1000 * 86400);
+      if (ageDays > 1) return 0; // Filter out old data
+      // For coloring, use recency within past day
+      return ageDays <= 0 ? 1.0 : Math.max(0, 1.0 - ageDays);
+    }
+    case 'repeater-count': {
+      // Color by repeater count: 0=0.0, 1=0.5, 2=0.75, >2=1.0
+      const count = (coverage.rptr && coverage.rptr.length) || 0;
+      if (count === 0) return 0.0;
+      if (count === 1) return 0.5;
+      if (count === 2) return 0.75;
+      return 1.0; // >2
+    }
+    case 'sample-count': {
+      // Color by sample count, normalized to min/max in current data
+      const count = coverage.rcv + coverage.lost;
+      if (count === 0) return 0.0;
+      // Use normalized value (will be calculated in renderNodes)
+      const range = globalSampleMax - globalSampleMin;
+      return range > 0 ? (count - globalSampleMin) / range : 1.0;
+    }
+    default:
+      return 0;
+  }
+}
+
+// Get global min/max for sample count normalization
+let globalSampleMin = 0;
+let globalSampleMax = 1;
+
+function updateGlobalSampleStats() {
+  if (!hashToCoverage) {
+    globalSampleMin = 0;
+    globalSampleMax = 1;
+    return;
+  }
+  let min = Infinity;
+  let max = 0;
+  hashToCoverage.forEach((coverage) => {
+    const count = coverage.rcv + coverage.lost;
+    if (count > 0) {
+      min = Math.min(min, count);
+      max = Math.max(max, count);
+    }
+  });
+  globalSampleMin = min === Infinity ? 0 : min;
+  globalSampleMax = max === 0 ? 1 : max;
+}
+
 // Get style object for patterns (used by rectangles)
 function successRateToStyle(rate) {
   const clampedRate = Math.max(0, Math.min(1, rate));
@@ -553,27 +663,36 @@ function successRateToStyle(rate) {
 
 function coverageMarker(coverage) {
   const [minLat, minLon, maxLat, maxLon] = geo.decode_bbox(coverage.id);
-  const totalSamples = coverage.rcv + coverage.lost;
-  const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
+  
+  // Get value for current query mode
+  let queryValue = getQueryValue(coverage);
+  
+  // For past-day, filter out if value is 0
+  if (queryMode === 'past-day' && queryValue === 0) {
+    return null; // Don't render this marker
+  }
   
   // Get style based on palette
-  const styleInfo = successRateToStyle(heardRatio);
-  const color = successRateToColor(heardRatio);
+  const styleInfo = successRateToStyle(queryValue);
+  const color = successRateToColor(queryValue);
   const date = new Date(fromTruncatedTime(coverage.time || 0));
+  
+  const totalSamples = coverage.rcv + coverage.lost;
+  const heardRatio = totalSamples > 0 ? coverage.rcv / totalSamples : 0;
   
   // Ensure tiles with only lost samples are visible
   // Base opacity on total samples, but ensure minimum visibility for lost-only tiles
   const baseOpacity = 0.75 * sigmoid(totalSamples, 1.2, 2);
-  // For tiles with only lost samples, use higher minimum opacity
-  const opacity = heardRatio > 0 
-    ? baseOpacity * heardRatio 
-    : Math.max(baseOpacity, 0.4); // At least 40% opacity for lost-only tiles
+  // For query modes, use queryValue for opacity; for others, use heardRatio
+  const opacityValue = (queryMode === 'past-day' || queryMode === 'last-updated') 
+    ? queryValue 
+    : (heardRatio > 0 ? baseOpacity * heardRatio : Math.max(baseOpacity, 0.4));
   
   const style = {
     color: styleInfo.borderColor || color,
     weight: styleInfo.hasBorder ? 2 : 1, // Thicker border for empty boxes
     fillColor: styleInfo.fillColor || color,
-    fillOpacity: styleInfo.fillOpacity !== undefined ? styleInfo.fillOpacity : Math.max(opacity, 0.2), // Use palette opacity or minimum 20% opacity
+    fillOpacity: styleInfo.fillOpacity !== undefined ? styleInfo.fillOpacity : Math.max(opacityValue, 0.2), // Use palette opacity or minimum 20% opacity
   };
   
   const rect = L.rectangle([[minLat, minLon], [maxLat, maxLon]], style);
@@ -593,8 +712,11 @@ function coverageMarker(coverage) {
   }
   let details = `
     <strong>${coverage.id}</strong><br/>
-    Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>
-    Updated: ${date.toLocaleString()}`;
+    Heard: ${coverage.rcv} Lost: ${coverage.lost} (${(100 * heardRatio).toFixed(0)}%)<br/>`;
+  if (coverage.obs !== undefined) {
+    details += `Observed: ${coverage.obs}<br/>`;
+  }
+  details += `Updated: ${date.toLocaleString()}`;
   if (coverage.rptr && coverage.rptr.length > 0) {
     details += `<br/>Repeaters: ${coverage.rptr.join(',')}`;
   }
@@ -838,9 +960,17 @@ function renderNodes(nodes) {
   sampleLayer.clearLayers();
   repeaterLayer.clearLayers();
 
+  // Update global stats for sample-count normalization
+  if (queryMode === 'sample-count') {
+    updateGlobalSampleStats();
+  }
+
   // Add coverage boxes.
   hashToCoverage.entries().forEach(([key, coverage]) => {
-    coverageLayer.addLayer(coverageMarker(coverage));
+    const marker = coverageMarker(coverage);
+    if (marker) { // Past-day mode may return null
+      coverageLayer.addLayer(marker);
+    }
   });
 
   // Add samples (aggregated if showSamples is false, individual if true)
@@ -901,6 +1031,13 @@ function buildIndexes(nodes) {
     if (c.rcv === undefined && c.heard !== undefined) {
       c.rcv = c.heard;
     }
+    // Ensure obs and hrd fields exist (from backend obs/rcv)
+    if (c.obs === undefined) {
+      c.obs = c.observed ?? 0;
+    }
+    if (c.hrd === undefined) {
+      c.hrd = c.rcv ?? 0;
+    }
     // snr and rssi are already on c from backend and will be preserved when set in map
     hashToCoverage.set(c.id, c);
   });
@@ -924,6 +1061,7 @@ function buildIndexes(nodes) {
         rptr: (s.path || s.rptr) ? [...(s.path || s.rptr)] : [],
         snr: (s.snr !== null && s.snr !== undefined) ? s.snr : undefined,
         rssi: (s.rssi !== null && s.rssi !== undefined) ? s.rssi : undefined,
+        obs: (s.obs !== undefined) ? (s.obs ? 1 : 0) : 0, // Preserve obs from samples
       };
       hashToCoverage.set(key, coverage);
     } else {
@@ -931,6 +1069,10 @@ function buildIndexes(nodes) {
       // since samples are the source of truth
       coverage.rcv = sampleHeard;
       coverage.lost = sampleLost;
+      // Update obs if present in sample
+      if (s.obs !== undefined) {
+        coverage.obs = s.obs ? 1 : 0;
+      }
       if (s.time > (coverage.time || 0)) {
         coverage.time = s.time;
       }
